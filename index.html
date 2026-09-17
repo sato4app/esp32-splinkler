@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b3d91">
+  <meta name="description" content="ESP32-C3からBluetooth経由でSplinklerを制御する">
+  <title>ESP32 Splinkler</title>
+
+  <!-- PWA（GitHub Pagesのプロジェクトページでも動くよう相対パス） -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <style>
+    :root {
+      --theme: #0b3d91;
+      --bg: #f4f6fa;
+      --fg: #1b1f24;
+      --sub: #5b6472;
+      --border: #c9d2e3;
+      --ok: #1a7f37;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    header {
+      background: var(--theme);
+      color: #fff;
+      padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    #status {
+      font-size: 13px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      white-space: nowrap;
+    }
+    #status.connected { background: var(--ok); }
+    main { padding: 16px; max-width: 720px; margin: 0 auto; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .row:last-child { margin-bottom: 0; }
+    button {
+      flex: 1 1 auto;
+      min-height: 48px;
+      min-width: 120px;
+      padding: 12px 16px;
+      font-size: 16px;
+      border: 1px solid var(--theme);
+      border-radius: 8px;
+      background: var(--theme);
+      color: #fff;
+      cursor: pointer;
+    }
+    button.secondary { background: #fff; color: var(--theme); }
+    button:disabled { background: #dfe3ea; border-color: var(--border); color: #8a8f98; cursor: default; }
+    .card {
+      padding: 16px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .card h2 { font-size: 16px; margin: 0 0 12px; }
+    .count-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+    }
+    input[type="number"] {
+      width: 96px;
+      min-height: 48px;
+      padding: 12px;
+      font-size: 18px;
+      text-align: right;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    #progressText { font-size: 20px; font-weight: bold; margin: 0 0 8px; }
+    #progressText.active { color: var(--theme); }
+    progress { width: 100%; height: 12px; accent-color: var(--theme); }
+    .hint { font-size: 13px; color: var(--sub); margin: 8px 0 0; }
+    #log {
+      width: 100%;
+      height: 30vh;
+      min-height: 140px;
+      padding: 8px;
+      font-size: 14px;
+      font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      resize: vertical;
+    }
+    #notice {
+      padding: 12px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+      background: #fff4e5;
+      border: 1px solid #f0b429;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ESP32 Splinkler</h1>
+    <span id="status">未接続</span>
+  </header>
+
+  <main>
+    <p id="notice" hidden></p>
+
+    <div class="row">
+      <button id="connectBtn">ESP32に接続</button>
+      <button id="disconnectBtn" class="secondary" disabled>切断</button>
+      <button id="installBtn" class="secondary" hidden>ホーム画面に追加</button>
+    </div>
+
+    <section class="card">
+      <h2>LED点滅</h2>
+      <div class="row">
+        <label class="count-input">
+          <input type="number" id="blinkCount" min="1" max="100" step="1" value="5" inputmode="numeric" enterkeyhint="go">
+          回
+        </label>
+      </div>
+      <div class="row">
+        <button id="blinkBtn" disabled>点滅開始</button>
+        <button id="stopBtn" class="secondary" disabled>停止</button>
+      </div>
+      <p class="hint">内蔵LEDを1秒点灯・1秒消灯で、指定回数（1〜100回）点滅します。</p>
+    </section>
+
+    <section class="card">
+      <p id="progressText">—</p>
+      <progress id="progressBar" max="1" value="0"></progress>
+    </section>
+
+    <textarea id="log" readonly></textarea>
+  </main>
+
+  <script>
+    // ESP32側のコードと合わせたUUID
+    const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+    const RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Webからの書込先
+    const TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Webでの受取先
+    const DEVICE_NAME = "ESP32-Splinkler"; // ESP32側の DEVICE_NAME と合わせる
+    const MAX_BLINK_COUNT = 100;           // ESP32側の MAX_BLINK_COUNT と合わせる
+
+    let bluetoothDevice;
+    let rxCharacteristic; // 送信用
+
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const installBtn = document.getElementById('installBtn');
+    const blinkCount = document.getElementById('blinkCount');
+    const blinkBtn = document.getElementById('blinkBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const progressText = document.getElementById('progressText');
+    const progressBar = document.getElementById('progressBar');
+    const logArea = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const notice = document.getElementById('notice');
+
+    function log(message) {
+      const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+      logArea.value += '[' + time + '] ' + message + '\n';
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    // 接続状態に応じてUIをまとめて切り替える
+    function setConnected(connected) {
+      statusEl.textContent = connected ? '接続中' : '未接続';
+      statusEl.classList.toggle('connected', connected);
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      blinkBtn.disabled = !connected;
+      stopBtn.disabled = !connected;
+      setProgress(connected ? '待機中' : '—', 0, 1, false);
+    }
+
+    function setProgress(text, value, max, active) {
+      progressText.textContent = text;
+      progressText.classList.toggle('active', active);
+      progressBar.max = max;
+      progressBar.value = value;
+    }
+
+    function showNotice(html) {
+      notice.innerHTML = html;
+      notice.hidden = false;
+    }
+
+    // Web Bluetoothが使える環境かを起動時に判定する
+    function checkEnvironment() {
+      if (!window.isSecureContext) {
+        showNotice('このページは <b>HTTPS または localhost</b> で開く必要があります。'
+          + 'Web Bluetooth APIは安全なコンテキストでのみ動作します。');
+        connectBtn.disabled = true;
+        return;
+      }
+      if (!navigator.bluetooth) {
+        showNotice('このブラウザは <b>Web Bluetooth API</b> に対応していません。'
+          + 'Android版Chrome、またはデスクトップ版のChrome/Edgeで開いてください'
+          + '（iOSのSafari・Firefoxは非対応）。');
+        connectBtn.disabled = true;
+      }
+    }
+
+    // ESP32からの通知を表示に反映する
+    //   ON <n>/<回数>  n回目の点灯
+    //   DONE <回数>    指定回数の点滅が完了
+    //   STOPPED        停止コマンドで停止
+    //   ERR <内容>     コマンドの誤り
+    function handleMessage(message) {
+      const text = message.trim();
+      const space = text.indexOf(' ');
+      const type = space < 0 ? text : text.slice(0, space);
+      const arg = space < 0 ? '' : text.slice(space + 1);
+      switch (type) {
+        case 'ON': {
+          const [current, total] = arg.split('/').map(Number);
+          setProgress(`点滅中 ${current} / ${total} 回目`, current, total, true);
+          break;
+        }
+        case 'DONE':
+          setProgress(`完了（${arg}回）`, 1, 1, false);
+          break;
+        case 'STOPPED':
+          setProgress('停止しました', 0, 1, false);
+          break;
+        case 'ERR':
+          log('ESP32でエラー: ' + arg);
+          break;
+      }
+    }
+
+    connectBtn.addEventListener('click', async () => {
+      try {
+        log('デバイスを検索中...');
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: DEVICE_NAME }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        // 切断検知はデバイスごとに一度だけ登録する（再接続時の二重登録を避ける）
+        bluetoothDevice.addEventListener('gattserverdisconnected', () => {
+          log('❌ 切断されました');
+          rxCharacteristic = null;
+          setConnected(false);
+        });
+
+        log('接続しています...');
+        const server = await bluetoothDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        // 受信用（TX）のセットアップ
+        const txCharacteristic = await service.getCharacteristic(TX_UUID);
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const value = new TextDecoder().decode(event.target.value);
+          log('ESP32から受信: ' + value);
+          handleMessage(value);
+        });
+
+        // 送信用（RX）のセットアップ
+        rxCharacteristic = await service.getCharacteristic(RX_UUID);
+
+        log('✅ 接続完了！');
+        setConnected(true);
+
+      } catch (error) {
+        log('エラー: ' + error);
+      }
+    });
+
+    disconnectBtn.addEventListener('click', () => {
+      if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+        bluetoothDevice.gatt.disconnect();
+      }
+    });
+
+    async function sendCommand(command) {
+      if (!rxCharacteristic) return;
+      try {
+        await rxCharacteristic.writeValue(new TextEncoder().encode(command));
+        log('Webから送信: ' + command);
+      } catch (error) {
+        log('送信エラー: ' + error);
+      }
+    }
+
+    function startBlink() {
+      const count = Number(blinkCount.value);
+      if (!Number.isInteger(count) || count < 1 || count > MAX_BLINK_COUNT) {
+        log(`回数は1〜${MAX_BLINK_COUNT}の整数で指定してください`);
+        blinkCount.focus();
+        return;
+      }
+      sendCommand('BLINK ' + count);
+    }
+
+    blinkBtn.addEventListener('click', startBlink);
+    stopBtn.addEventListener('click', () => sendCommand('STOP'));
+    // スマホのソフトキーボードの実行キーでも開始できるようにする
+    blinkCount.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (!blinkBtn.disabled) startBlink();
+      }
+    });
+
+    // ホーム画面への追加（Androidのインストールプロンプト）
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      deferredPrompt = event;
+      installBtn.hidden = false;
+    });
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => {
+      installBtn.hidden = true;
+      log('ホーム画面に追加しました');
+    });
+
+    // Service Workerの登録（オフライン起動用）
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .catch((error) => console.error('Service Workerの登録に失敗:', error));
+      });
+    }
+
+    checkEnvironment();
+  </script>
+</body>
+</html>
