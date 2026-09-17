@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "firmware"
+		}
+	],
+	"settings": {
+		"files.exclude": {
+			"firmware": true
+		}
+	}
+}
