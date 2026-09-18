@@ -144,7 +144,7 @@
       font-size: 15px;
       font-variant-numeric: tabular-nums;
     }
-    #runList li.done { color: var(--sub); }
+    #runList li.done, #runList li.stopped { color: var(--sub); }
     #runList li.next { background: #eef3fc; }
     #runList li.running { background: #e6f4ea; font-weight: bold; }
     .run-no { color: var(--sub); }
@@ -231,10 +231,11 @@
       <p id="scheduleError" class="error" role="alert" hidden></p>
       <div class="row">
         <button id="startBtn">スタート</button>
-        <button id="clearBtn" class="secondary" disabled>クリア</button>
+        <button id="stopBtn" class="secondary" disabled>ストップ</button>
       </div>
       <p class="hint">開始日時は現在時刻＋10秒が初期値で、「リセット」でこの値に戻します（手で変更も可）。
-        「スタート」で開始日時から間隔ごとに、回数分の動作予定を作成します。</p>
+        「スタート」で開始日時から間隔ごとに、回数分の動作予定を作成します。
+        「ストップ」で進行中の予定をすぐに止めます。</p>
     </section>
 
     <section class="card">
@@ -258,7 +259,7 @@
       </div>
       <div class="row">
         <button id="blinkBtn" disabled>点滅開始</button>
-        <button id="stopBtn" class="secondary" disabled>停止</button>
+        <button id="blinkStopBtn" class="secondary" disabled>停止</button>
       </div>
       <p id="progressText" class="big-status">—</p>
       <progress id="progressBar" max="1" value="0"></progress>
@@ -284,7 +285,7 @@
     const installBtn = document.getElementById('installBtn');
     const blinkCount = document.getElementById('blinkCount');
     const blinkBtn = document.getElementById('blinkBtn');
-    const stopBtn = document.getElementById('stopBtn');
+    const blinkStopBtn = document.getElementById('blinkStopBtn');
     const progressText = document.getElementById('progressText');
     const progressBar = document.getElementById('progressBar');
     const logArea = document.getElementById('log');
@@ -304,7 +305,7 @@
       connectBtn.disabled = connected;
       disconnectBtn.disabled = !connected;
       blinkBtn.disabled = !connected;
-      stopBtn.disabled = !connected;
+      blinkStopBtn.disabled = !connected;
       setProgress(connected ? '待機中' : '—', 0, 1, false);
     }
 
@@ -430,7 +431,7 @@
     }
 
     blinkBtn.addEventListener('click', startBlink);
-    stopBtn.addEventListener('click', () => sendCommand('STOP'));
+    blinkStopBtn.addEventListener('click', () => sendCommand('STOP'));
     // スマホのソフトキーボードの実行キーでも開始できるようにする
     blinkCount.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -446,7 +447,7 @@
     const SETTINGS_KEY = 'esp32-splinkler-settings';
     const SCHEDULE_KEY = 'esp32-splinkler-schedule';
     const START_DELAY_SEC = 10; // 開始日時の初期値（現在時刻から何秒後か）
-    const RUN_STATE_LABELS = { waiting: '予定', next: '次回', running: '動作中', done: '完了' };
+    const RUN_STATE_LABELS = { waiting: '予定', next: '次回', running: '動作中', done: '完了', stopped: '中止' };
 
     const intervalDays = document.getElementById('intervalDays');
     const intervalHours = document.getElementById('intervalHours');
@@ -458,7 +459,7 @@
     const startAt = document.getElementById('startAt');
     const resetBtn = document.getElementById('resetBtn');
     const startBtn = document.getElementById('startBtn');
-    const clearBtn = document.getElementById('clearBtn');
+    const stopBtn = document.getElementById('stopBtn');
     const scheduleError = document.getElementById('scheduleError');
     const scheduleStatus = document.getElementById('scheduleStatus');
     const scheduleSummary = document.getElementById('scheduleSummary');
@@ -467,7 +468,7 @@
     const settingInputs = [intervalDays, intervalHours, intervalMinutes, intervalSeconds,
       durationMinutes, durationSeconds, repeatCount];
 
-    let schedule = null;     // { start(ms), intervalSec, durationSec, repeat }
+    let schedule = null;     // { start(ms), intervalSec, durationSec, repeat, stoppedAt(ms)? }
     let runs = [];           // 各回の { no, start, end, el, badge }
     let timerId = null;
     let lastPhaseKey = null;   // 進行の変化をログと音で知らせるための前回の状態
@@ -677,19 +678,32 @@
       oscillator.stop(t + duration);
     }
 
+    function isStopped() {
+      return Number.isFinite(schedule.stoppedAt);
+    }
+
     // 1秒ごとに呼ばれ、一覧の状態と残り時間を更新する
     function updateSchedule() {
       if (!schedule) return;
-      const now = Date.now();
+      // ストップ済みなら、ストップした時点の状態で止めて表示する
+      const stopped = isStopped();
+      const now = stopped ? schedule.stoppedAt : Date.now();
       const phase = currentPhase(now);
 
       for (const run of runs) {
         let state = 'waiting';
         if (now >= run.end) state = 'done';
+        else if (stopped) state = 'stopped';
         else if (now >= run.start) state = 'running';
         else if (run === phase.run) state = 'next';
         run.el.className = state;
         run.badge.textContent = RUN_STATE_LABELS[state];
+      }
+
+      if (stopped) {
+        const doneCount = runs.filter((run) => now >= run.end).length;
+        setScheduleStatus(`ストップ（${doneCount} / ${runs.length}回 完了）`, false);
+        return;
       }
 
       if (phase.type === 'wait') {
@@ -733,6 +747,7 @@
       return 1000 - Date.now() % 1000 + TICK_DELAY_MS;
     }
 
+    // 「ストップ」は予定が進行している間（タイマー動作中）だけ押せる
     function startTimer() {
       if (timerId !== null) return;
       const tick = () => {
@@ -740,11 +755,13 @@
         updateSchedule(); // 全て完了したらここで stopTimer() される
       };
       timerId = setTimeout(tick, msToNextTick());
+      stopBtn.disabled = false;
     }
 
     function stopTimer() {
       clearTimeout(timerId);
       timerId = null;
+      stopBtn.disabled = true;
     }
 
     function setSchedule(newSchedule) {
@@ -753,14 +770,13 @@
       renderRuns();
       lastPhaseKey = null;
       lastBeepSecond = null;
-      clearBtn.disabled = !schedule;
       stopTimer();
-      if (schedule) {
-        startTimer();
-        updateSchedule(); // 全て完了済みならここでタイマーが止まる
-      } else {
+      if (!schedule) {
         setScheduleStatus('予定なし', false);
+        return;
       }
+      if (!isStopped()) startTimer();
+      updateSchedule(); // 全て完了済みならここでタイマーが止まる
     }
 
     function loadSchedule() {
@@ -797,11 +813,14 @@
       }
     });
 
-    clearBtn.addEventListener('click', () => {
-      // 進行中の予定だけ誤操作を防ぐため確認する
-      if (timerId !== null && !confirm('動作予定をクリアしますか？')) return;
-      setSchedule(null);
-      log('動作予定をクリアしました');
+    // 「ストップ」: 進行中の予定をすぐに止める（一覧は残し、残りの回は「中止」にする）
+    stopBtn.addEventListener('click', () => {
+      if (!schedule || isStopped()) return;
+      schedule = { ...schedule, stoppedAt: Date.now() };
+      storageSet(SCHEDULE_KEY, schedule);
+      stopTimer();
+      updateSchedule();
+      log('動作予定をストップしました');
     });
 
     for (const input of settingInputs) {
