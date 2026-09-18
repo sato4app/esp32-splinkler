@@ -137,7 +137,9 @@
       min-width: 0;
       min-height: 44px;
       padding: 6px;
-      -moz-appearance: textfield; /* 増減ボタンを消して3桁が入る幅を確保する */
+      /* 増減ボタンを消して3桁が入る幅を確保する */
+      -moz-appearance: textfield;
+      appearance: textfield;
     }
     .settings-grid input[type="number"]::-webkit-inner-spin-button,
     .settings-grid input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
