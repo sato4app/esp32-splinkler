@@ -192,7 +192,7 @@
       <fieldset>
         <legend>間隔</legend>
         <div class="units">
-          <label><input type="number" id="intervalDays" min="0" max="365" step="1" value="1" inputmode="numeric">日</label>
+          <label><input type="number" id="intervalDays" min="0" max="365" step="1" value="0" inputmode="numeric">日</label>
           <label><input type="number" id="intervalHours" min="0" max="23" step="1" value="0" inputmode="numeric">時</label>
           <label><input type="number" id="intervalMinutes" min="0" max="59" step="1" value="0" inputmode="numeric">分</label>
           <label><input type="number" id="intervalSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
@@ -201,14 +201,14 @@
       <fieldset>
         <legend>動作時間</legend>
         <div class="units">
-          <label><input type="number" id="durationMinutes" min="0" max="999" step="1" value="10" inputmode="numeric">分</label>
+          <label><input type="number" id="durationMinutes" min="0" max="999" step="1" value="0" inputmode="numeric">分</label>
           <label><input type="number" id="durationSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
         </div>
       </fieldset>
       <fieldset>
         <legend>回数</legend>
         <label class="count-input">
-          <input type="number" id="repeatCount" min="1" max="100" step="1" value="7" inputmode="numeric">
+          <input type="number" id="repeatCount" min="1" max="100" step="1" value="0" inputmode="numeric">
           回
         </label>
       </fieldset>
@@ -224,7 +224,7 @@
         <button id="startBtn">スタート</button>
         <button id="clearBtn" class="secondary" disabled>クリア</button>
       </div>
-      <p class="hint">開始日時は現在時刻＋60秒が初期値で、「リセット」でこの値に戻します（手で変更も可）。
+      <p class="hint">開始日時は現在時刻＋10秒が初期値で、「リセット」でこの値に戻します（手で変更も可）。
         「スタート」で開始日時から間隔ごとに、回数分の動作予定を作成します。</p>
     </section>
 
@@ -434,7 +434,7 @@
 
     const SETTINGS_KEY = 'esp32-splinkler-settings';
     const SCHEDULE_KEY = 'esp32-splinkler-schedule';
-    const START_DELAY_SEC = 60; // 開始日時の初期値（現在時刻から何秒後か）
+    const START_DELAY_SEC = 10; // 開始日時の初期値（現在時刻から何秒後か）
     const RUN_STATE_LABELS = { waiting: '予定', next: '次回', running: '動作中', done: '完了' };
 
     const intervalDays = document.getElementById('intervalDays');
@@ -585,7 +585,7 @@
       return { intervalSec, durationSec, repeat };
     }
 
-    // 開始日時を初期値（現在時刻＋60秒）にする
+    // 開始日時を初期値（現在時刻＋10秒）にする
     function resetStartAt() {
       const now = Math.floor(Date.now() / 1000) * 1000;
       startAt.value = toInputValue(now + START_DELAY_SEC * 1000);
