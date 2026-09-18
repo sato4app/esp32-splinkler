@@ -244,6 +244,8 @@
       <ol id="runList"></ol>
       <p class="hint">回路が未完成のため、ESP32へは送信せず、この画面上で予定どおりに進行を表示します。
         予定はページを閉じても保存されます。</p>
+      <p class="hint">動作中は1秒ごとに電子音が鳴り、開始と終了は高い音になります。
+        ページを開き直した後は、画面に一度触れると鳴るようになります。</p>
     </section>
 
     <section class="card">
@@ -468,7 +470,8 @@
     let schedule = null;     // { start(ms), intervalSec, durationSec, repeat }
     let runs = [];           // 各回の { no, start, end, el, badge }
     let timerId = null;
-    let lastPhaseKey = null; // 進行の変化をログに出すための前回の状態
+    let lastPhaseKey = null;   // 進行の変化をログと音で知らせるための前回の状態
+    let lastBeepSecond = null; // 動作中に最後に鳴らしたのは開始から何秒目か
 
     const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
     const pad2 = (n) => String(n).padStart(2, '0');
@@ -639,6 +642,41 @@
       scheduleStatus.classList.toggle('running', running);
     }
 
+    // ===== 電子音（Web Audio API） =====
+    // 動作中は1秒ごとに短い音、開始と終了だけ高く長い音にする
+    const TICK_TONE = { frequency: 1000, duration: 0.08 };
+    const EDGE_TONE = { frequency: 2000, duration: 0.5 };
+    const BEEP_VOLUME = 0.1;
+
+    let audioCtx = null;
+
+    // ブラウザは画面操作の中でしか音を出せるようにできないため、操作のたびに再開を試みる
+    function unlockAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state !== 'running') audioCtx.resume();
+    }
+
+    function beep({ frequency, duration }) {
+      if (!audioCtx || audioCtx.state !== 'running') return;
+      const t = audioCtx.currentTime;
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'square';
+      oscillator.frequency.value = frequency;
+      // 音の出だしと終わりで音量を急に変えるとプツッと鳴るので、短く上げ下げする
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(BEEP_VOLUME, t + 0.005);
+      gain.gain.setValueAtTime(BEEP_VOLUME, t + duration - 0.01);
+      gain.gain.linearRampToValueAtTime(0, t + duration);
+      oscillator.connect(gain).connect(audioCtx.destination);
+      oscillator.start(t);
+      oscillator.stop(t + duration);
+    }
+
     // 1秒ごとに呼ばれ、一覧の状態と残り時間を更新する
     function updateSchedule() {
       if (!schedule) return;
@@ -663,22 +701,49 @@
         stopTimer();
       }
 
-      // 画面を開いている間に進行が変わったらログに残す（開いた直後は記録しない）
+      // 画面を開いている間に進行が変わったらログと音で知らせる（開いた直後は知らせない）
       const phaseKey = phase.type === 'done' ? 'done' : phase.type + phase.run.no;
-      if (lastPhaseKey !== null && phaseKey !== lastPhaseKey) {
-        if (lastPhaseKey.startsWith('run')) log(`■ #${lastPhaseKey.slice(3)} 動作終了`);
-        if (phase.type === 'run') log(`▶ #${phase.run.no} 動作開始`);
+      const changed = lastPhaseKey !== null && phaseKey !== lastPhaseKey;
+      if (changed) {
+        if (lastPhaseKey.startsWith('run')) {
+          log(`■ #${lastPhaseKey.slice(3)} 動作終了`);
+          beep(EDGE_TONE);
+        }
+        if (phase.type === 'run') {
+          log(`▶ #${phase.run.no} 動作開始`);
+          beep(EDGE_TONE);
+        }
         if (phase.type === 'done') log(`全${runs.length}回の動作が完了しました`);
       }
       lastPhaseKey = phaseKey;
+
+      // 動作中は開始から1秒ごとに鳴らす（開始の瞬間は開始音だけにする）
+      if (phase.type === 'run') {
+        const second = Math.floor((now - phase.run.start) / 1000);
+        if (!changed && second !== lastBeepSecond) beep(TICK_TONE);
+        lastBeepSecond = second;
+      }
+    }
+
+    // 動作の開始・終了は秒単位の時刻なので、更新を時計の秒の変わり目（少し後）にそろえて
+    // 1秒ごとの音と残り時間の表示がずれないようにする
+    const TICK_DELAY_MS = 20;
+
+    function msToNextTick() {
+      return 1000 - Date.now() % 1000 + TICK_DELAY_MS;
     }
 
     function startTimer() {
-      if (timerId === null) timerId = setInterval(updateSchedule, 1000);
+      if (timerId !== null) return;
+      const tick = () => {
+        timerId = setTimeout(tick, msToNextTick());
+        updateSchedule(); // 全て完了したらここで stopTimer() される
+      };
+      timerId = setTimeout(tick, msToNextTick());
     }
 
     function stopTimer() {
-      clearInterval(timerId);
+      clearTimeout(timerId);
       timerId = null;
     }
 
@@ -687,6 +752,7 @@
       storageSet(SCHEDULE_KEY, schedule);
       renderRuns();
       lastPhaseKey = null;
+      lastBeepSecond = null;
       clearBtn.disabled = !schedule;
       stopTimer();
       if (schedule) {
@@ -746,6 +812,10 @@
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) updateSchedule();
     });
+
+    // 画面に触れた・キーを押したときに音を出せる状態にする（スタートボタンもこれで対応）
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('keydown', unlockAudio);
 
     // ホーム画面への追加（Androidのインストールプロンプト）
     let deferredPrompt = null;
