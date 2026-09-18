@@ -81,8 +81,8 @@
       gap: 8px;
       font-size: 16px;
     }
-    /* 日・分・秒のように単位つきで横に並べる入力欄 */
-    .units { display: flex; flex-wrap: wrap; gap: 8px; }
+    /* 日・時・分・秒のように単位つきで横に並べる入力欄（スマホ幅でも4つが1行に収まるよう等分する） */
+    .units { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; max-width: 360px; }
     .units label { display: flex; align-items: center; gap: 4px; font-size: 16px; }
     input[type="number"] {
       width: 96px;
@@ -94,8 +94,16 @@
       border-radius: 8px;
       background: #fff;
     }
-    .units input[type="number"] { width: 72px; padding: 8px; }
-    /* 秒まで見える幅を確保し、足りない画面ではセットボタンを下の行に回す */
+    .units input[type="number"] {
+      flex: 1 1 auto;
+      width: 100%;
+      min-width: 0;
+      padding: 8px 6px;
+      -moz-appearance: textfield; /* 増減ボタンを消して3桁が入る幅を確保する */
+    }
+    .units input[type="number"]::-webkit-inner-spin-button,
+    .units input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    /* 秒まで見える幅を確保し、足りない画面ではリセットボタンを下の行に回す */
     input[type="datetime-local"] {
       flex: 3 1 230px;
       min-width: 0;
@@ -107,7 +115,7 @@
       background: #fff;
       color: var(--fg);
     }
-    #setBtn { flex: 1 0 auto; min-width: 96px; }
+    #resetBtn { flex: 1 0 auto; min-width: 96px; }
     .error { margin: 0 0 12px; font-size: 14px; color: var(--error); }
     .big-status { font-size: 20px; font-weight: bold; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
     #progressText.active { color: var(--theme); }
@@ -185,14 +193,15 @@
         <legend>間隔</legend>
         <div class="units">
           <label><input type="number" id="intervalDays" min="0" max="365" step="1" value="1" inputmode="numeric">日</label>
-          <label><input type="number" id="intervalMinutes" min="0" max="1439" step="1" value="0" inputmode="numeric">分</label>
+          <label><input type="number" id="intervalHours" min="0" max="23" step="1" value="0" inputmode="numeric">時</label>
+          <label><input type="number" id="intervalMinutes" min="0" max="59" step="1" value="0" inputmode="numeric">分</label>
           <label><input type="number" id="intervalSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
         </div>
       </fieldset>
       <fieldset>
         <legend>動作時間</legend>
         <div class="units">
-          <label><input type="number" id="durationMinutes" min="0" max="1439" step="1" value="10" inputmode="numeric">分</label>
+          <label><input type="number" id="durationMinutes" min="0" max="999" step="1" value="10" inputmode="numeric">分</label>
           <label><input type="number" id="durationSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
         </div>
       </fieldset>
@@ -207,7 +216,7 @@
         <legend>開始日時</legend>
         <div class="row">
           <input type="datetime-local" id="startAt" step="1">
-          <button id="setBtn" class="secondary">セット</button>
+          <button id="resetBtn" class="secondary">リセット</button>
         </div>
       </fieldset>
       <p id="scheduleError" class="error" role="alert" hidden></p>
@@ -215,7 +224,7 @@
         <button id="startBtn">スタート</button>
         <button id="clearBtn" class="secondary" disabled>クリア</button>
       </div>
-      <p class="hint">「セット」で現在時刻＋間隔を開始日時にします（手で変更も可）。
+      <p class="hint">開始日時は現在時刻＋60秒が初期値で、「リセット」でこの値に戻します（手で変更も可）。
         「スタート」で開始日時から間隔ごとに、回数分の動作予定を作成します。</p>
     </section>
 
@@ -425,24 +434,27 @@
 
     const SETTINGS_KEY = 'esp32-splinkler-settings';
     const SCHEDULE_KEY = 'esp32-splinkler-schedule';
+    const START_DELAY_SEC = 60; // 開始日時の初期値（現在時刻から何秒後か）
     const RUN_STATE_LABELS = { waiting: '予定', next: '次回', running: '動作中', done: '完了' };
 
     const intervalDays = document.getElementById('intervalDays');
+    const intervalHours = document.getElementById('intervalHours');
     const intervalMinutes = document.getElementById('intervalMinutes');
     const intervalSeconds = document.getElementById('intervalSeconds');
     const durationMinutes = document.getElementById('durationMinutes');
     const durationSeconds = document.getElementById('durationSeconds');
     const repeatCount = document.getElementById('repeatCount');
     const startAt = document.getElementById('startAt');
-    const setBtn = document.getElementById('setBtn');
+    const resetBtn = document.getElementById('resetBtn');
     const startBtn = document.getElementById('startBtn');
     const clearBtn = document.getElementById('clearBtn');
     const scheduleError = document.getElementById('scheduleError');
     const scheduleStatus = document.getElementById('scheduleStatus');
     const scheduleSummary = document.getElementById('scheduleSummary');
     const runList = document.getElementById('runList');
-    const settingInputs = [intervalDays, intervalMinutes, intervalSeconds,
-      durationMinutes, durationSeconds, repeatCount, startAt];
+    // 開始日時は開くたびに初期値へ戻すため保存しない
+    const settingInputs = [intervalDays, intervalHours, intervalMinutes, intervalSeconds,
+      durationMinutes, durationSeconds, repeatCount];
 
     let schedule = null;     // { start(ms), intervalSec, durationSec, repeat }
     let runs = [];           // 各回の { no, start, end, el, badge }
@@ -468,13 +480,15 @@
       return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${formatTime(d)}`;
     }
 
-    // 秒数を入力欄と同じ「日・分・秒」の単位で表す 例: 1日 30分
+    // 秒数を入力欄と同じ「日・時・分・秒」の単位で表す 例: 1日 2時間 30分
     function formatSpan(totalSec) {
       const days = Math.floor(totalSec / 86400);
-      const minutes = Math.floor(totalSec % 86400 / 60);
+      const hours = Math.floor(totalSec % 86400 / 3600);
+      const minutes = Math.floor(totalSec % 3600 / 60);
       const seconds = totalSec % 60;
       const parts = [];
       if (days) parts.push(days + '日');
+      if (hours) parts.push(hours + '時間');
       if (minutes) parts.push(minutes + '分');
       if (seconds || parts.length === 0) parts.push(seconds + '秒');
       return parts.join(' ');
@@ -517,7 +531,11 @@
       const values = storageGet(SETTINGS_KEY);
       if (!values) return;
       for (const input of settingInputs) {
-        if (typeof values[input.id] === 'string') input.value = values[input.id];
+        if (typeof values[input.id] !== 'string') continue;
+        // 入力範囲が変わった場合などで範囲外になった値は使わず、初期値のままにする
+        const defaultValue = input.value;
+        input.value = values[input.id];
+        if (!input.validity.valid) input.value = defaultValue;
       }
     }
 
@@ -550,16 +568,12 @@
       return value;
     }
 
-    function readInterval() {
-      const sec = readInt(intervalDays, '間隔の日') * 86400
+    function readSettings() {
+      const intervalSec = readInt(intervalDays, '間隔の日') * 86400
+        + readInt(intervalHours, '間隔の時') * 3600
         + readInt(intervalMinutes, '間隔の分') * 60
         + readInt(intervalSeconds, '間隔の秒');
-      if (sec === 0) throw new InputError('間隔は1秒以上にしてください', intervalSeconds);
-      return sec;
-    }
-
-    function readSettings() {
-      const intervalSec = readInterval();
+      if (intervalSec === 0) throw new InputError('間隔は1秒以上にしてください', intervalSeconds);
       const durationSec = readInt(durationMinutes, '動作時間の分') * 60
         + readInt(durationSeconds, '動作時間の秒');
       if (durationSec === 0) throw new InputError('動作時間は1秒以上にしてください', durationSeconds);
@@ -571,11 +585,10 @@
       return { intervalSec, durationSec, repeat };
     }
 
-    // 「セット」: 現在時刻＋間隔を開始日時にする
-    function applySet(intervalSec) {
+    // 開始日時を初期値（現在時刻＋60秒）にする
+    function resetStartAt() {
       const now = Math.floor(Date.now() / 1000) * 1000;
-      startAt.value = toInputValue(now + intervalSec * 1000);
-      saveSettings();
+      startAt.value = toInputValue(now + START_DELAY_SEC * 1000);
     }
 
     // 各回の開始・終了日時を一覧にする
@@ -684,13 +697,9 @@
       }
     }
 
-    setBtn.addEventListener('click', () => {
+    resetBtn.addEventListener('click', () => {
       clearError();
-      try {
-        applySet(readInterval());
-      } catch (error) {
-        showError(error);
-      }
+      resetStartAt();
     });
 
     // 「スタート」: 開始日時から間隔ごとに、回数分の動作日時を算出して一覧に出す
@@ -699,11 +708,11 @@
       try {
         const settings = readSettings();
         if (startAt.validity.badInput) throw new InputError('開始日時を最後まで入力してください', startAt);
-        if (startAt.value === '') applySet(settings.intervalSec); // 未設定なら「セット」と同じにする
+        if (startAt.value === '') resetStartAt(); // 未設定なら「リセット」と同じにする
         const start = new Date(startAt.value).getTime();
         if (Number.isNaN(start)) throw new InputError('開始日時を正しく指定してください', startAt);
         if (start <= Date.now()) {
-          throw new InputError('開始日時が過去です。「セット」で設定し直してください', startAt);
+          throw new InputError('開始日時が過去です。「リセット」で設定し直してください', startAt);
         }
         setSchedule({ start, ...settings });
         log(`動作予定を作成: ${formatDateTime(start)} から ${formatSpan(settings.intervalSec)}ごとに`
@@ -758,6 +767,7 @@
 
     checkEnvironment();
     loadSettings();
+    resetStartAt();
     loadSchedule();
   </script>
 </body>
