@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- アプリアイコンの元データ。icon-192.png / icon-512.png はこれを書き出したもの。
+       maskable（OSが丸などに切り抜く）でも欠けないよう、絵は中心から半径205以内に収める -->
+  <rect width="512" height="512" fill="#0b3d91"/>
+  <!-- 水しぶき: 左右のノズルの先から点線の弧で飛ばす -->
+  <g fill="none" stroke="#8fd8ff" stroke-linecap="round" stroke-width="21" stroke-dasharray="0 36" stroke-dashoffset="16">
+    <path d="M 200 200 Q 138 76 72 234"/>
+    <path d="M 200 200 Q 170 132 132 264"/>
+    <path d="M 312 200 Q 374 76 440 234"/>
+    <path d="M 312 200 Q 342 132 380 264"/>
+  </g>
+  <!-- 芝生 -->
+  <path d="M 116 396 Q 256 326 396 396 Z" fill="#4cbb6a"/>
+  <!-- スプリンクラー本体（ノズル・ヘッド・支柱） -->
+  <g fill="#ffffff">
+    <rect x="200" y="206" width="44" height="22" rx="8" transform="rotate(35 222 217)"/>
+    <rect x="268" y="206" width="44" height="22" rx="8" transform="rotate(-35 290 217)"/>
+    <circle cx="256" cy="246" r="30"/>
+    <rect x="245" y="260" width="22" height="106" rx="4"/>
+  </g>
+</svg>

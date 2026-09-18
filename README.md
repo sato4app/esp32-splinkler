@@ -43,7 +43,7 @@ Web側（ブラウザ）とファーム側（ESP32-C3）を1つのリポジト�
 index.html                      Web側（動作スケジュール・Web Bluetooth接続・LED点滅テスト）
 manifest.json                   PWA設定（アプリ名・アイコン・表示モード）
 service-worker.js               オフライン起動用のキャッシュ制御
-icons/                          PWAアイコン（192x192 / 512x512）
+icons/                          PWAアイコン（192x192 / 512x512。元データは icon.svg）
 esp32-splinkler.code-workspace  VS Code 用（リポジトリと firmware を同時に開く）
 firmware/                       ESP32ファーム（PlatformIOプロジェクト）
   platformio.ini                ボード・ビルド設定
