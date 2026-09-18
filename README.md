@@ -116,3 +116,4 @@ Chrome（Android/デスクトップ）で動作する。SafariとFirefoxはWeb B
 
 - 端末のBluetoothをONにする（Android 11以下は位置情報もONが必要）
 - 配信ファイルを変更したら `service-worker.js` の `CACHE_VERSION` を上げる
+- 画面上部のタイトル「ESP32 Splinkler」を押すと最新版を確認する。新しい版（`CACHE_VERSION` が変わった `service-worker.js`）があれば入れ替えて読み込み直し、なければ「最新版です（v8）」のように今の版を表示する

@@ -1,6 +1,6 @@
 // アプリシェルをキャッシュしてオフラインでも起動できるようにする。
 // 配信ファイルを変更したら CACHE_VERSION を上げること。
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const CACHE_NAME = `esp32-splinkler-${CACHE_VERSION}`;
 
 // GitHub Pages のプロジェクトページ（/リポジトリ名/ 配下）でも動くよう相対パスで指定する

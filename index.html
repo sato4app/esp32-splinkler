@@ -40,6 +40,33 @@
       gap: 8px;
     }
     header h1 { font-size: 18px; margin: 0; }
+    /* タイトルは押すと最新版を確認するが、見た目はただの文字のままにする */
+    #titleBtn {
+      flex: none;
+      min-height: 0;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      max-width: calc(100% - 32px);
+      padding: 10px 16px;
+      border-radius: 8px;
+      background: rgba(27, 31, 36, 0.9);
+      color: #fff;
+      font-size: 14px;
+      z-index: 10;
+    }
     #status {
       font-size: 13px;
       padding: 4px 10px;
@@ -185,7 +212,7 @@
 </head>
 <body>
   <header>
-    <h1>ESP32 Splinkler</h1>
+    <h1><button id="titleBtn" title="最新版を確認">ESP32 Splinkler</button></h1>
     <span id="status">未接続</span>
   </header>
 
@@ -268,6 +295,8 @@
 
     <textarea id="log" readonly></textarea>
   </main>
+
+  <div id="toast" role="status" hidden></div>
 
   <script>
     // ESP32側のコードと合わせたUUID
@@ -862,6 +891,74 @@
           .catch((error) => console.error('Service Workerの登録に失敗:', error));
       });
     }
+
+    // ===== 最新版の確認（タイトルを押す） =====
+    // service-worker.js の CACHE_NAME の接頭辞と合わせる（キャッシュ名から版を読み取る）
+    const CACHE_PREFIX = 'esp32-splinkler-';
+    const titleBtn = document.getElementById('titleBtn');
+    const toast = document.getElementById('toast');
+    let toastTimerId = null;
+    let checkingUpdate = false;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(toastTimerId);
+      toastTimerId = setTimeout(() => { toast.hidden = true; }, 3000);
+    }
+
+    // 今の版（例: v8）。わからなければ空文字
+    async function currentVersion() {
+      try {
+        const name = (await caches.keys()).find((key) => key.startsWith(CACHE_PREFIX));
+        return name ? name.slice(CACHE_PREFIX.length) : '';
+      } catch {
+        return '';
+      }
+    }
+
+    // 新しい service-worker.js があれば入れ替わりを待って再読み込みする
+    // （配信ファイルを変えたときは CACHE_VERSION を上げる決まりなので、SWの変化＝新しい版）
+    async function checkForUpdate() {
+      if (checkingUpdate) return;
+      if (!('serviceWorker' in navigator)) {
+        showToast('この環境では最新版を確認できません');
+        return;
+      }
+      checkingUpdate = true;
+      showToast('最新版を確認しています...');
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) {
+          location.reload(); // SWが未登録なら、読み込み直すだけで最新になる
+          return;
+        }
+        await registration.update();
+        const newWorker = registration.installing || registration.waiting;
+        if (!newWorker) {
+          const version = await currentVersion();
+          showToast(version ? `最新版です（${version}）` : '最新版です');
+          checkingUpdate = false;
+          return;
+        }
+        showToast('新しい版を読み込んでいます...');
+        const reloadWhenActivated = () => {
+          if (newWorker.state === 'activated') location.reload();
+          if (newWorker.state === 'redundant') {
+            showToast('新しい版の読み込みに失敗しました');
+            checkingUpdate = false;
+          }
+        };
+        newWorker.addEventListener('statechange', reloadWhenActivated);
+        reloadWhenActivated();
+      } catch (error) {
+        showToast('最新版を確認できませんでした（通信を確認してください）');
+        log('最新版の確認に失敗: ' + error);
+        checkingUpdate = false;
+      }
+    }
+
+    titleBtn.addEventListener('click', checkForUpdate);
 
     checkEnvironment();
     loadSettings();
