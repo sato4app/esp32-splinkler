@@ -20,6 +20,7 @@
       --sub: #5b6472;
       --border: #c9d2e3;
       --ok: #1a7f37;
+      --error: #c62828;
     }
     * { box-sizing: border-box; }
     body {
@@ -72,12 +73,17 @@
       background: #fff;
     }
     .card h2 { font-size: 16px; margin: 0 0 12px; }
+    fieldset { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
+    legend { padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: bold; color: var(--sub); }
     .count-input {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 16px;
     }
+    /* 日・分・秒のように単位つきで横に並べる入力欄 */
+    .units { display: flex; flex-wrap: wrap; gap: 8px; }
+    .units label { display: flex; align-items: center; gap: 4px; font-size: 16px; }
     input[type="number"] {
       width: 96px;
       min-height: 48px;
@@ -88,10 +94,52 @@
       border-radius: 8px;
       background: #fff;
     }
-    #progressText { font-size: 20px; font-weight: bold; margin: 0 0 8px; }
+    .units input[type="number"] { width: 72px; padding: 8px; }
+    /* 秒まで見える幅を確保し、足りない画面ではセットボタンを下の行に回す */
+    input[type="datetime-local"] {
+      flex: 3 1 230px;
+      min-width: 0;
+      min-height: 48px;
+      padding: 8px 12px;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--fg);
+    }
+    #setBtn { flex: 1 0 auto; min-width: 96px; }
+    .error { margin: 0 0 12px; font-size: 14px; color: var(--error); }
+    .big-status { font-size: 20px; font-weight: bold; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
     #progressText.active { color: var(--theme); }
+    #scheduleStatus.running { color: var(--ok); }
     progress { width: 100%; height: 12px; accent-color: var(--theme); }
     .hint { font-size: 13px; color: var(--sub); margin: 8px 0 0; }
+    #runList { list-style: none; margin: 12px 0 0; padding: 0; }
+    #runList li {
+      display: grid;
+      grid-template-columns: 2.8em 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 4px;
+      border-top: 1px solid var(--border);
+      font-size: 15px;
+      font-variant-numeric: tabular-nums;
+    }
+    #runList li.done { color: var(--sub); }
+    #runList li.next { background: #eef3fc; }
+    #runList li.running { background: #e6f4ea; font-weight: bold; }
+    .run-no { color: var(--sub); }
+    .run-time span { white-space: nowrap; }
+    .badge {
+      font-size: 12px;
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--sub);
+      white-space: nowrap;
+    }
+    li.next .badge { border-color: var(--theme); color: var(--theme); }
+    li.running .badge { border-color: var(--ok); background: var(--ok); color: #fff; }
     #log {
       width: 100%;
       height: 30vh;
@@ -132,7 +180,56 @@
     </div>
 
     <section class="card">
-      <h2>LED点滅</h2>
+      <h2>動作設定</h2>
+      <fieldset>
+        <legend>間隔</legend>
+        <div class="units">
+          <label><input type="number" id="intervalDays" min="0" max="365" step="1" value="1" inputmode="numeric">日</label>
+          <label><input type="number" id="intervalMinutes" min="0" max="1439" step="1" value="0" inputmode="numeric">分</label>
+          <label><input type="number" id="intervalSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>動作時間</legend>
+        <div class="units">
+          <label><input type="number" id="durationMinutes" min="0" max="1439" step="1" value="10" inputmode="numeric">分</label>
+          <label><input type="number" id="durationSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>回数</legend>
+        <label class="count-input">
+          <input type="number" id="repeatCount" min="1" max="100" step="1" value="7" inputmode="numeric">
+          回
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>開始日時</legend>
+        <div class="row">
+          <input type="datetime-local" id="startAt" step="1">
+          <button id="setBtn" class="secondary">セット</button>
+        </div>
+      </fieldset>
+      <p id="scheduleError" class="error" role="alert" hidden></p>
+      <div class="row">
+        <button id="startBtn">スタート</button>
+        <button id="clearBtn" class="secondary" disabled>クリア</button>
+      </div>
+      <p class="hint">「セット」で現在時刻＋間隔を開始日時にします（手で変更も可）。
+        「スタート」で開始日時から間隔ごとに、回数分の動作予定を作成します。</p>
+    </section>
+
+    <section class="card">
+      <h2>動作予定</h2>
+      <p id="scheduleStatus" class="big-status">予定なし</p>
+      <p id="scheduleSummary" class="hint"></p>
+      <ol id="runList"></ol>
+      <p class="hint">回路が未完成のため、ESP32へは送信せず、この画面上で予定どおりに進行を表示します。
+        予定はページを閉じても保存されます。</p>
+    </section>
+
+    <section class="card">
+      <h2>接続テスト（LED点滅）</h2>
       <div class="row">
         <label class="count-input">
           <input type="number" id="blinkCount" min="1" max="100" step="1" value="5" inputmode="numeric" enterkeyhint="go">
@@ -143,12 +240,9 @@
         <button id="blinkBtn" disabled>点滅開始</button>
         <button id="stopBtn" class="secondary" disabled>停止</button>
       </div>
-      <p class="hint">内蔵LEDを1秒点灯・1秒消灯で、指定回数（1〜100回）点滅します。</p>
-    </section>
-
-    <section class="card">
-      <p id="progressText">—</p>
+      <p id="progressText" class="big-status">—</p>
       <progress id="progressBar" max="1" value="0"></progress>
+      <p class="hint">内蔵LEDを1秒点灯・1秒消灯で、指定回数（1〜100回）点滅します。</p>
     </section>
 
     <textarea id="log" readonly></textarea>
@@ -325,6 +419,316 @@
       }
     });
 
+    // ===== 動作スケジュール =====
+    // n回目（0始まり）は「開始日時 + n × 間隔」に始まり、動作時間だけ動く。
+    // 回路が未完成のため、現在はこの画面上で進行を表示するだけでESP32へは送らない。
+
+    const SETTINGS_KEY = 'esp32-splinkler-settings';
+    const SCHEDULE_KEY = 'esp32-splinkler-schedule';
+    const RUN_STATE_LABELS = { waiting: '予定', next: '次回', running: '動作中', done: '完了' };
+
+    const intervalDays = document.getElementById('intervalDays');
+    const intervalMinutes = document.getElementById('intervalMinutes');
+    const intervalSeconds = document.getElementById('intervalSeconds');
+    const durationMinutes = document.getElementById('durationMinutes');
+    const durationSeconds = document.getElementById('durationSeconds');
+    const repeatCount = document.getElementById('repeatCount');
+    const startAt = document.getElementById('startAt');
+    const setBtn = document.getElementById('setBtn');
+    const startBtn = document.getElementById('startBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const scheduleError = document.getElementById('scheduleError');
+    const scheduleStatus = document.getElementById('scheduleStatus');
+    const scheduleSummary = document.getElementById('scheduleSummary');
+    const runList = document.getElementById('runList');
+    const settingInputs = [intervalDays, intervalMinutes, intervalSeconds,
+      durationMinutes, durationSeconds, repeatCount, startAt];
+
+    let schedule = null;     // { start(ms), intervalSec, durationSec, repeat }
+    let runs = [];           // 各回の { no, start, end, el, badge }
+    let timerId = null;
+    let lastPhaseKey = null; // 進行の変化をログに出すための前回の状態
+
+    const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+    const pad2 = (n) => String(n).padStart(2, '0');
+
+    function formatTime(date) {
+      return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+    }
+
+    // 例: 9/18(金) 14:30:00
+    function formatDateTime(ms) {
+      const d = new Date(ms);
+      return `${d.getMonth() + 1}/${d.getDate()}(${WEEKDAYS[d.getDay()]}) ${formatTime(d)}`;
+    }
+
+    // datetime-local の value 形式（ローカル時刻）例: 2026-09-18T14:30:00
+    function toInputValue(ms) {
+      const d = new Date(ms);
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${formatTime(d)}`;
+    }
+
+    // 秒数を入力欄と同じ「日・分・秒」の単位で表す 例: 1日 30分
+    function formatSpan(totalSec) {
+      const days = Math.floor(totalSec / 86400);
+      const minutes = Math.floor(totalSec % 86400 / 60);
+      const seconds = totalSec % 60;
+      const parts = [];
+      if (days) parts.push(days + '日');
+      if (minutes) parts.push(minutes + '分');
+      if (seconds || parts.length === 0) parts.push(seconds + '秒');
+      return parts.join(' ');
+    }
+
+    // 残り時間の表示 例: 1日 02:03:04
+    function formatRemaining(ms) {
+      const totalSec = Math.ceil(ms / 1000);
+      const days = Math.floor(totalSec / 86400);
+      const rest = totalSec % 86400;
+      const hms = `${pad2(Math.floor(rest / 3600))}:${pad2(Math.floor(rest % 3600 / 60))}:${pad2(rest % 60)}`;
+      return days > 0 ? `${days}日 ${hms}` : hms;
+    }
+
+    function storageGet(key) {
+      try {
+        return JSON.parse(localStorage.getItem(key));
+      } catch {
+        return null;
+      }
+    }
+
+    // 保存できない環境（プライベートモード等）では保存せずに続ける
+    function storageSet(key, value) {
+      try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // 何もしない
+      }
+    }
+
+    function saveSettings() {
+      const values = {};
+      for (const input of settingInputs) values[input.id] = input.value;
+      storageSet(SETTINGS_KEY, values);
+    }
+
+    function loadSettings() {
+      const values = storageGet(SETTINGS_KEY);
+      if (!values) return;
+      for (const input of settingInputs) {
+        if (typeof values[input.id] === 'string') input.value = values[input.id];
+      }
+    }
+
+    // 入力の誤り（どの欄を直せばよいかを持たせる）
+    class InputError extends Error {
+      constructor(message, input) {
+        super(message);
+        this.input = input;
+      }
+    }
+
+    function showError(error) {
+      if (!(error instanceof InputError)) throw error;
+      scheduleError.textContent = error.message;
+      scheduleError.hidden = false;
+      error.input.focus();
+    }
+
+    function clearError() {
+      scheduleError.hidden = true;
+    }
+
+    // 入力欄を整数として読み取る（空欄は0とみなす）
+    function readInt(input, label) {
+      const value = Number(input.value);
+      if (input.validity.badInput || !Number.isInteger(value)
+        || value < Number(input.min) || value > Number(input.max)) {
+        throw new InputError(`${label}は${input.min}〜${input.max}の整数で指定してください`, input);
+      }
+      return value;
+    }
+
+    function readInterval() {
+      const sec = readInt(intervalDays, '間隔の日') * 86400
+        + readInt(intervalMinutes, '間隔の分') * 60
+        + readInt(intervalSeconds, '間隔の秒');
+      if (sec === 0) throw new InputError('間隔は1秒以上にしてください', intervalSeconds);
+      return sec;
+    }
+
+    function readSettings() {
+      const intervalSec = readInterval();
+      const durationSec = readInt(durationMinutes, '動作時間の分') * 60
+        + readInt(durationSeconds, '動作時間の秒');
+      if (durationSec === 0) throw new InputError('動作時間は1秒以上にしてください', durationSeconds);
+      const repeat = readInt(repeatCount, '回数');
+      // 前の動作が終わる前に次の動作が始まらないようにする
+      if (repeat > 1 && durationSec >= intervalSec) {
+        throw new InputError('動作時間は間隔より短くしてください', durationMinutes);
+      }
+      return { intervalSec, durationSec, repeat };
+    }
+
+    // 「セット」: 現在時刻＋間隔を開始日時にする
+    function applySet(intervalSec) {
+      const now = Math.floor(Date.now() / 1000) * 1000;
+      startAt.value = toInputValue(now + intervalSec * 1000);
+      saveSettings();
+    }
+
+    // 各回の開始・終了日時を一覧にする
+    function renderRuns() {
+      runList.replaceChildren();
+      runs = [];
+      if (!schedule) {
+        scheduleSummary.textContent = '「スタート」を押すと、ここに動作予定が表示されます。';
+        return;
+      }
+      for (let i = 0; i < schedule.repeat; i++) {
+        const start = schedule.start + i * schedule.intervalSec * 1000;
+        const end = start + schedule.durationSec * 1000;
+        // 終了が開始と同じ日なら時刻だけにして一覧を読みやすくする
+        const endText = new Date(start).toDateString() === new Date(end).toDateString()
+          ? formatTime(new Date(end)) : formatDateTime(end);
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="run-no">#${i + 1}</span>`
+          + `<span class="run-time"><span>${formatDateTime(start)}</span> <span>〜 ${endText}</span></span>`
+          + '<span class="badge"></span>';
+        runList.appendChild(li);
+        runs.push({ no: i + 1, start, end, el: li, badge: li.querySelector('.badge') });
+      }
+      scheduleSummary.textContent = `全${schedule.repeat}回 ／ 間隔 ${formatSpan(schedule.intervalSec)}`
+        + ` ／ 動作 ${formatSpan(schedule.durationSec)} ／ 最終終了 ${formatDateTime(runs[runs.length - 1].end)}`;
+    }
+
+    // 現在が「次の回を待っている」「動作中」「全て完了」のどれか
+    function currentPhase(now) {
+      for (const run of runs) {
+        if (now < run.start) return { type: 'wait', run };
+        if (now < run.end) return { type: 'run', run };
+      }
+      return { type: 'done' };
+    }
+
+    function setScheduleStatus(text, running) {
+      scheduleStatus.textContent = text;
+      scheduleStatus.classList.toggle('running', running);
+    }
+
+    // 1秒ごとに呼ばれ、一覧の状態と残り時間を更新する
+    function updateSchedule() {
+      if (!schedule) return;
+      const now = Date.now();
+      const phase = currentPhase(now);
+
+      for (const run of runs) {
+        let state = 'waiting';
+        if (now >= run.end) state = 'done';
+        else if (now >= run.start) state = 'running';
+        else if (run === phase.run) state = 'next';
+        run.el.className = state;
+        run.badge.textContent = RUN_STATE_LABELS[state];
+      }
+
+      if (phase.type === 'wait') {
+        setScheduleStatus(`次回 #${phase.run.no} まで ${formatRemaining(phase.run.start - now)}`, false);
+      } else if (phase.type === 'run') {
+        setScheduleStatus(`動作中 #${phase.run.no} 残り ${formatRemaining(phase.run.end - now)}`, true);
+      } else {
+        setScheduleStatus(`全${runs.length}回 完了`, false);
+        stopTimer();
+      }
+
+      // 画面を開いている間に進行が変わったらログに残す（開いた直後は記録しない）
+      const phaseKey = phase.type === 'done' ? 'done' : phase.type + phase.run.no;
+      if (lastPhaseKey !== null && phaseKey !== lastPhaseKey) {
+        if (lastPhaseKey.startsWith('run')) log(`■ #${lastPhaseKey.slice(3)} 動作終了`);
+        if (phase.type === 'run') log(`▶ #${phase.run.no} 動作開始`);
+        if (phase.type === 'done') log(`全${runs.length}回の動作が完了しました`);
+      }
+      lastPhaseKey = phaseKey;
+    }
+
+    function startTimer() {
+      if (timerId === null) timerId = setInterval(updateSchedule, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerId);
+      timerId = null;
+    }
+
+    function setSchedule(newSchedule) {
+      schedule = newSchedule;
+      storageSet(SCHEDULE_KEY, schedule);
+      renderRuns();
+      lastPhaseKey = null;
+      clearBtn.disabled = !schedule;
+      stopTimer();
+      if (schedule) {
+        startTimer();
+        updateSchedule(); // 全て完了済みならここでタイマーが止まる
+      } else {
+        setScheduleStatus('予定なし', false);
+      }
+    }
+
+    function loadSchedule() {
+      const saved = storageGet(SCHEDULE_KEY);
+      if (saved && [saved.start, saved.intervalSec, saved.durationSec, saved.repeat].every(Number.isFinite)) {
+        setSchedule(saved);
+      } else {
+        setSchedule(null);
+      }
+    }
+
+    setBtn.addEventListener('click', () => {
+      clearError();
+      try {
+        applySet(readInterval());
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    // 「スタート」: 開始日時から間隔ごとに、回数分の動作日時を算出して一覧に出す
+    startBtn.addEventListener('click', () => {
+      clearError();
+      try {
+        const settings = readSettings();
+        if (startAt.validity.badInput) throw new InputError('開始日時を最後まで入力してください', startAt);
+        if (startAt.value === '') applySet(settings.intervalSec); // 未設定なら「セット」と同じにする
+        const start = new Date(startAt.value).getTime();
+        if (Number.isNaN(start)) throw new InputError('開始日時を正しく指定してください', startAt);
+        if (start <= Date.now()) {
+          throw new InputError('開始日時が過去です。「セット」で設定し直してください', startAt);
+        }
+        setSchedule({ start, ...settings });
+        log(`動作予定を作成: ${formatDateTime(start)} から ${formatSpan(settings.intervalSec)}ごとに`
+          + `${settings.repeat}回（各${formatSpan(settings.durationSec)}）`);
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      // 進行中の予定だけ誤操作を防ぐため確認する
+      if (timerId !== null && !confirm('動作予定をクリアしますか？')) return;
+      setSchedule(null);
+      log('動作予定をクリアしました');
+    });
+
+    for (const input of settingInputs) {
+      input.addEventListener('change', saveSettings);
+    }
+
+    // バックグラウンド中はタイマーが間引かれるため、表示に戻ったらすぐ更新する
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) updateSchedule();
+    });
+
     // ホーム画面への追加（Androidのインストールプロンプト）
     let deferredPrompt = null;
     window.addEventListener('beforeinstallprompt', (event) => {
@@ -353,6 +757,8 @@
     }
 
     checkEnvironment();
+    loadSettings();
+    loadSchedule();
   </script>
 </body>
 </html>
