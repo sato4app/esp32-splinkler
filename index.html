@@ -74,16 +74,27 @@
     }
     .card h2 { font-size: 16px; margin: 0 0 12px; }
     fieldset { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
-    legend { padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: bold; color: var(--sub); }
+    legend { padding: 0; margin-bottom: 6px; }
+    legend, .legend { font-size: 14px; font-weight: bold; color: var(--sub); }
     .count-input {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 16px;
     }
-    /* 日・時・分・秒のように単位つきで横に並べる入力欄（スマホ幅でも4つが1行に収まるよう等分する） */
-    .units { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; max-width: 360px; }
-    .units label { display: flex; align-items: center; gap: 4px; font-size: 16px; }
+    /* 間隔・動作時間・回数を「ラベル＋入力欄」の1行ずつに並べる表。
+       単位は先頭行に見出しとして1回だけ出し、スマホ幅でも4つの入力欄が1行に収まるよう等分する */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 4.5em repeat(4, minmax(0, 1fr));
+      gap: 8px 6px;
+      align-items: center;
+      max-width: 420px;
+      margin-bottom: 16px;
+    }
+    .settings-grid .unit { font-size: 13px; color: var(--sub); text-align: center; }
+    .settings-grid .unit.inline { text-align: left; font-size: 16px; color: var(--fg); }
+    .settings-grid .col-min { grid-column: 4; } /* 動作時間は間隔の分・秒の列にそろえる */
     input[type="number"] {
       width: 96px;
       min-height: 48px;
@@ -94,15 +105,15 @@
       border-radius: 8px;
       background: #fff;
     }
-    .units input[type="number"] {
-      flex: 1 1 auto;
+    .settings-grid input[type="number"] {
       width: 100%;
       min-width: 0;
-      padding: 8px 6px;
+      min-height: 44px;
+      padding: 6px;
       -moz-appearance: textfield; /* 増減ボタンを消して3桁が入る幅を確保する */
     }
-    .units input[type="number"]::-webkit-inner-spin-button,
-    .units input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .settings-grid input[type="number"]::-webkit-inner-spin-button,
+    .settings-grid input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     /* 秒まで見える幅を確保し、足りない画面ではリセットボタンを下の行に回す */
     input[type="datetime-local"] {
       flex: 3 1 230px;
@@ -189,29 +200,27 @@
 
     <section class="card">
       <h2>動作設定</h2>
-      <fieldset>
-        <legend>間隔</legend>
-        <div class="units">
-          <label><input type="number" id="intervalDays" min="0" max="365" step="1" value="0" inputmode="numeric">日</label>
-          <label><input type="number" id="intervalHours" min="0" max="23" step="1" value="0" inputmode="numeric">時</label>
-          <label><input type="number" id="intervalMinutes" min="0" max="59" step="1" value="0" inputmode="numeric">分</label>
-          <label><input type="number" id="intervalSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>動作時間</legend>
-        <div class="units">
-          <label><input type="number" id="durationMinutes" min="0" max="999" step="1" value="0" inputmode="numeric">分</label>
-          <label><input type="number" id="durationSeconds" min="0" max="59" step="1" value="0" inputmode="numeric">秒</label>
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>回数</legend>
-        <label class="count-input">
-          <input type="number" id="repeatCount" min="1" max="100" step="1" value="0" inputmode="numeric">
-          回
-        </label>
-      </fieldset>
+      <div class="settings-grid">
+        <span></span>
+        <span class="unit" aria-hidden="true">日</span>
+        <span class="unit" aria-hidden="true">時</span>
+        <span class="unit" aria-hidden="true">分</span>
+        <span class="unit" aria-hidden="true">秒</span>
+
+        <span class="legend">間隔</span>
+        <input type="number" id="intervalDays" min="0" max="365" step="1" value="0" inputmode="numeric" aria-label="間隔の日">
+        <input type="number" id="intervalHours" min="0" max="23" step="1" value="0" inputmode="numeric" aria-label="間隔の時">
+        <input type="number" id="intervalMinutes" min="0" max="59" step="1" value="0" inputmode="numeric" aria-label="間隔の分">
+        <input type="number" id="intervalSeconds" min="0" max="59" step="1" value="0" inputmode="numeric" aria-label="間隔の秒">
+
+        <span class="legend">動作時間</span>
+        <input type="number" id="durationMinutes" class="col-min" min="0" max="999" step="1" value="0" inputmode="numeric" aria-label="動作時間の分">
+        <input type="number" id="durationSeconds" min="0" max="59" step="1" value="0" inputmode="numeric" aria-label="動作時間の秒">
+
+        <span class="legend">回数</span>
+        <input type="number" id="repeatCount" min="1" max="100" step="1" value="0" inputmode="numeric" aria-label="回数">
+        <span class="unit inline" aria-hidden="true">回</span>
+      </div>
       <fieldset>
         <legend>開始日時</legend>
         <div class="row">
